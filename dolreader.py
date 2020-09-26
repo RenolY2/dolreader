@@ -62,6 +62,10 @@ def get_alignment(number, align: int):
     else:
         return 0
 
+class UnmappedAddressError(Exception): pass
+class SectionCountFullError(Exception): pass
+class AddressOutOfRangeError(Exception): pass
+
 class GC_File(FileIO):
 
     def __init__(self, *args, **kwargs):
@@ -137,9 +141,12 @@ class DolFile(object):
         self._currLogicAddr = self.textSections[0][1]
         self.seek(self._currLogicAddr)
         f.seek(0)
+
+    def __str__(self):
+        return "Nintendo DOL format executable for the Wii and Gamecube"
         
     # Internal function for 
-    def resolve_address(self, gcAddr, raiseError=True) -> (None, tuple):
+    def resolve_address(self, gcAddr, raiseError=True) -> tuple:
         '''Returns the data of the section that houses the given address
            If raiseError is True, a RuntimeError is raised when the address is unmapped,
            otherwise it returns None'''
@@ -152,7 +159,7 @@ class DolFile(object):
                 return offset, address, size, data
         
         if raiseError:
-            raise RuntimeError("Unmapped address: 0x{:X}".format(gcAddr))
+            raise UnmappedAddressError(f"Unmapped address: 0x{gcAddr:X}")
 
         return None
 
@@ -172,20 +179,20 @@ class DolFile(object):
     def get_final_section(self) -> tuple:
         largestOffset = 0
         indexToTarget = 0
-        targetType = 0
+        targetType = "Text"
 
         for i, sectionData in enumerate(self.textSections):
             if sectionData[0] > largestOffset:
                 largestOffset = sectionData[0]
                 indexToTarget = i
-                targetType = 0
+                targetType = "Text"
         for i, sectionData in enumerate(self.dataSections):
             if sectionData[0] > largestOffset:
                 largestOffset = sectionData[0]
                 indexToTarget = i
-                targetType = 1
+                targetType = "Data"
         
-        if targetType == 0:
+        if targetType == "Text":
             return self.textSections[indexToTarget]
         else:
             return self.dataSections[indexToTarget]
@@ -221,7 +228,7 @@ class DolFile(object):
             
             self._currLogicAddr += where
         else:
-            raise RuntimeError("Unsupported whence type '{}'".format(whence))
+            raise RuntimeError(f"Unsupported whence type '{whence}'")
         
     def tell(self) -> int:
         return self._currLogicAddr
@@ -277,14 +284,12 @@ class DolFile(object):
         return sectionsList[index][2]
     
     def append_text_sections(self, sectionsList: list) -> bool:
-        """ Follows the list format: [tuple(<Bytes>Data, <Int>GameAddress or None), tuple(<Bytes>Data... 
-        
-            Returns True if the operation can be performed, otherwise it returns False """
+        """ Follows the list format: [tuple(<Bytes>Data, <Int>GameAddress or None), tuple(<Bytes>Data... """
 
         '''Write offset/address/size to each section in DOL file header'''
         for i, dataSet in enumerate(sectionsList):
             if len(self.textSections) >= self.maxTextSections:
-                return False
+                raise SectionCountFullError(f"Exceeded max text section limit of {self.maxTextSections}")
 
             fOffset, _, fSize, _ = self.get_final_section()
             _, pAddress, pSize, _ = self.textSections[len(self.textSections) - 1]
@@ -304,21 +309,17 @@ class DolFile(object):
                 address = self.seek_nearest_unmapped(pAddress + pSize, size)
 
             if address < 0x80000000 or address >= 0x81200000:
-                raise ValueError("Address '{:08X}' of text section {} is beyond scope (0x80000000 <-> 0x81200000)".format(address, i))
+                raise AddressOutOfRangeError(f"Address '{address:08X}' of text section {i} is beyond scope (0x80000000 <-> 0x81200000)")
 
             self.textSections.append((offset, address, size, data))
 
-        return True
-
     def append_data_sections(self, sectionsList: list) -> bool:
-        """ Follows the list format: [tuple(<Bytes>Data, <Int>GameAddress or None), tuple(<Bytes>Data... 
-        
-            Returns True if the operation can be performed, otherwise it returns False """
+        """ Follows the list format: [tuple(<Bytes>Data, <Int>GameAddress or None), tuple(<Bytes>Data... """
 
         '''Write offset/address/size to each section in DOL file header'''
         for i, dataSet in enumerate(sectionsList):
             if len(self.dataSections) >= self.maxDataSections:
-                return False
+                raise SectionCountFullError(f"Exceeded max data section limit of {self.maxDataSections}")
 
             fOffset, _, fSize, _ = self.get_final_section()
             _, pAddress, pSize, _ = self.dataSections[len(self.dataSections) - 1]
@@ -338,11 +339,9 @@ class DolFile(object):
                 address = self.seek_nearest_unmapped(pAddress + pSize, size)
 
             if address < 0x80000000 or address >= 0x81200000:
-                raise ValueError("Address '{:08X}' of data section {} is beyond scope (0x80000000 <-> 0x81200000)".format(address, i))
+                raise AddressOutOfRangeError(f"Address '{address:08X}' of data section {i} is beyond scope (0x80000000 <-> 0x81200000)")
 
             self.dataSections.append((offset, address, size, data))
-
-        return True
 
     def insert_branch(self, to: int, _from: int, lk=0):
         self.seek(_from)
@@ -391,6 +390,22 @@ class DolFile(object):
                 break
 
         return string
+
+    def print_info(self):
+        print("|---DOL INFO---|".center(20, " "))
+        for i, (offset, addr, size, _) in enumerate(self.textSections):
+            header = f"|  Text section {i}  |"
+            print("-"*len(header) + "\n" + header + "\n" + "-"*len(header) + f"\n File offset:\t0x{offset:X}\n Virtual addr:\t0x{addr:X}\n Size:\t\t0x{size:X}\n")
+        
+        for i, (offset, addr, size, _) in enumerate(self.dataSections):
+            header = f"|  Data section {i}  |"
+            print("-"*len(header) + "\n" + header + "\n" + "-"*len(header) + f"\n File offset:\t0x{offset:X}\n Virtual addr:\t0x{addr:X}\n Size:\t\t0x{size:X}\n")
+
+        header = "|  BSS section  |"  
+        print("-"*len(header) + "\n" + header + "\n" + "-"*len(header) + f"\n Virtual addr:\t0x{self.bssAddress:X}\n Size:\t\t0x{self.bssSize:X}\n End:\t\t0x{self.bssAddress+self.bssSize:X}\n")
+        
+        header = "|  Miscellaneous Info  |"
+        print("-"*len(header) + "\n" + header + "\n" + "-"*len(header) + f"\n Text sections:\t{len(self.textSections)}\n Data sections:\t{len(self.dataSections)}\n File length:\t0x{self.get_full_size():X} bytes\n")
 
 if __name__ == "__main__":
     # Example usage (Reading global string "mario" from Super Mario Sunshine (NTSC-U))
