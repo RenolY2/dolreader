@@ -1,44 +1,117 @@
-from io import BytesIO
+import struct
+from io import BytesIO, FileIO
 
-def read_sbyte(f): return struct.unpack("b", f.read(1))[0]
-def write_sbyte(f): struct.unpack("b", f.read(1))
-def read_sint16(f): return struct.unpack(">h", f.read(2))[0]
-def write_sint16(f, val): f.write(struct.pack(">h", val))
-def read_sint32(f): return struct.unpack(">i", f.read(4))[0]
-def write_sint32(f, val): f.write(struct.pack(">i", val))
-def read_float(f): return struct.unpack(">f", f.read(4))[0]
-def write_float(f, val): f.write(struct.pack(">f", val))
-def read_double(f): return struct.unpack(">d", f.read(4))[0]
-def write_double(f, val): f.write(struct.pack(">d", val))
-def read_ubyte(f): return struct.unpack("B", f.read(1))[0]
-def write_ubyte(f): struct.unpack("B", f.read(1))
-def read_uint16(f): return struct.unpack(">H", f.read(2))[0]
-def write_uint16(f, val): f.write(struct.pack(">H", val))
-def read_uint32(f): return struct.unpack(">I", f.read(4))[0]
-def write_uint32(f, val): f.write(struct.pack(">I", val))
-def read_float(f): return struct.unpack(">f", f.read(4))[0]
-def write_float(f, val): f.write(struct.pack(">f", val))
-def read_double(f): return struct.unpack(">d", f.read(4))[0]
-def write_double(f, val): f.write(struct.pack(">d", val))
+def read_sbyte(f):
+    return struct.unpack("b", f.read(1))[0]
 
-class DolFile:
+def write_sbyte(f, val):
+    f.write(struct.pack("b", val))
 
-    def __init__(self, f):
-        self._rawData = BytesIO(f.read())
+def read_sint16(f):
+    return struct.unpack(">h", f.read(2))[0]
+
+def write_sint16(f, val):
+    f.write(struct.pack(">h", val))
+
+def read_sint32(f):
+    return struct.unpack(">i", f.read(4))[0]
+
+def write_sint32(f, val):
+    f.write(struct.pack(">i", val))
+
+def read_ubyte(f):
+    return struct.unpack("B", f.read(1))[0]
+
+def write_ubyte(f, val):
+    f.write(struct.pack("B", val))
+
+def read_uint16(f):
+    return struct.unpack(">H", f.read(2))[0]
+
+def write_uint16(f, val):
+    f.write(struct.pack(">H", val))
+
+def read_uint32(f):
+    return struct.unpack(">I", f.read(4))[0]
+
+def write_uint32(f, val):
+    f.write(struct.pack(">I", val))
+
+def read_float(f):
+    return struct.unpack(">f", f.read(4))[0]
+
+def write_float(f, val):
+    f.write(struct.pack(">f", val))
+
+def read_double(f):
+    return struct.unpack(">d", f.read(4))[0]
+
+def write_double(f, val):
+    f.write(struct.pack(">d", val))
+
+def read_bool(f, vSize=1):
+    return struct.unpack("B", f.read(vSize))[0] > 0
+
+def write_bool(f, val, vSize=1):
+    if val is True: f.write(b'\x00'*(vSize-1) + b'\x01')
+    else: f.write(b'\x00' * vSize)
+
+def get_alignment(number, align: int):
+    if number % align != 0:
+        return align - (number % align)
+    else:
+        return 0
+
+class GC_File(FileIO):
+
+    def __init__(self, *args, **kwargs):
+        self._args = args
+        self._kwargs = kwargs
+        
+    def __enter__(self):
+        self._filestream = open(*self._args, **self._kwargs)
+        return self._filestream
+
+    def __exit__(self, *args):
+        self._filestream.close()
+    
+    def size(self, ofs: int = 0):
+        _pos = self.tell()
+        self.seek(0, 2)
+        _size = self.tell()
+        self.seek(_pos, 1)
+        return _size + ofs
+
+    def size_alignment(self, alignment: int):
+        """ Return file alignment, 0 = aligned, non zero = misaligned """
+        return get_alignment(self.size(), alignment)
+
+    def align_file_size(self, alignment: int, fillchar='00'):
+        """ Align a file to be the specified size """
+        self.write(bytes.fromhex(fillchar * self.size_alignment(alignment)))
+
+class DolFile(object):
+
+    def __init__(self, f: GC_File=None):
         self.fileOffsetLoc = 0
         self.fileAddressLoc = 0x48
         self.fileSizeLoc = 0x90 
+        self.fileBssInfoLoc = 0xD8
         self.fileEntryLoc = 0xE0
         
         self.textSections = []
         self.dataSections = []
         self.maxTextSections = 7
         self.maxDataSections = 11
-        
-        self._currentEnd = None 
+
+        self.bssAddress = 0
+        self.bssSize = 0
+        self.entryPoint = 0x80003000
+
+        if f is None: return
         
         # Read text and data section addresses and sizes 
-        for i in range(18):
+        for i in range(self.maxTextSections + self.maxDataSections):
             f.seek(self.fileOffsetLoc + (i << 2))
             offset = read_uint32(f)
             f.seek(self.fileAddressLoc + (i << 2))
@@ -46,216 +119,284 @@ class DolFile:
             f.seek(self.fileSizeLoc + (i << 2))
             size = read_uint32(f)
             
-            if offset != 0:
+            if offset >= 0x100:
+                f.seek(offset)
+                data = BytesIO(f.read(size))
                 if i < self.maxTextSections:
-                    self.textSections.append((offset, address, size))
+                    self.textSections.append((offset, address, size, data))
                 else:
-                    self.dataSections.append((offset, address, size))
+                    self.dataSections.append((offset, address, size, data))
         
-        f.seek(0xD8)
-        self.bssOffset = read_uint32(f)
+        f.seek(self.fileBssInfoLoc)
+        self.bssAddress = read_uint32(f)
         self.bssSize = read_uint32(f)
+
+        f.seek(self.fileEntryLoc)
         self.entryPoint = read_uint32(f)
         
-        self._bssData = BytesIO(self._rawData.getbuffer()[self.bssOffset:self.bssOffset + self.bssSize])
-        
-        self._currAddr = self.textSections[0][1]
-        self.seek(self._currAddr)
+        self._currLogicAddr = self.textSections[0][1]
+        self.seek(self._currLogicAddr)
         f.seek(0)
         
     # Internal function for 
-    def resolve_address(self, gcAddr):
-        for offset, address, size in self.textSections:
-            if address <= gcAddr < address+size:
-                return offset, address, size 
-        for offset, address, size in self.dataSections:
-            if address <= gcAddr < address+size:
-                return offset, address, size 
-        
-        raise RuntimeError(f"Unmapped address: 0x{gcAddr:X}")
+    def resolve_address(self, gcAddr, raiseError=True) -> (None, tuple):
+        '''Returns the data of the section that houses the given address
+           If raiseError is True, a RuntimeError is raised when the address is unmapped,
+           otherwise it returns None'''
 
-    def seek_safe_address(self, gcAddr, buffer=0):
-        for offset, address, size in self.textSections:
+        for offset, address, size, data in self.textSections:
+            if address <= gcAddr < address+size:
+                return offset, address, size, data
+        for offset, address, size, data in self.dataSections:
+            if address <= gcAddr < address+size:
+                return offset, address, size, data
+        
+        if raiseError:
+            raise RuntimeError("Unmapped address: 0x{:X}".format(gcAddr))
+
+        return None
+
+    def seek_nearest_unmapped(self, gcAddr, buffer=0) -> int:
+        '''Returns the nearest unmapped address (greater) if the given address is already taken by data'''
+        
+        for _, address, size, _ in self.textSections:
             if address > (gcAddr + buffer) or address+size < gcAddr:
                 continue
             gcAddr = address + size
-        for offset, address, size in self.dataSections:
+        for _, address, size, _ in self.dataSections:
             if address > (gcAddr + buffer) or address+size < gcAddr:
                 continue
             gcAddr = address + size
         return gcAddr
+
+    def get_final_section(self) -> tuple:
+        largestOffset = 0
+        indexToTarget = 0
+        targetType = 0
+
+        for i, sectionData in enumerate(self.textSections):
+            if sectionData[0] > largestOffset:
+                largestOffset = sectionData[0]
+                indexToTarget = i
+                targetType = 0
+        for i, sectionData in enumerate(self.dataSections):
+            if sectionData[0] > largestOffset:
+                largestOffset = sectionData[0]
+                indexToTarget = i
+                targetType = 1
+        
+        if targetType == 0:
+            return self.textSections[indexToTarget]
+        else:
+            return self.dataSections[indexToTarget]
     
     # Unsupported: Reading an entire dol file 
     # Assumption: A read should not go beyond the current section 
-    def read(self, size):
-        if self._currAddr + size > self._currentEnd:
+    def read(self, _size) -> bytes:
+        _, address, size, data = self.resolve_address(self._currLogicAddr)
+        if self._currLogicAddr + _size > address + size:
             raise RuntimeError("Read goes over current section")
             
-        self._currAddr += size  
-        return self._rawData.read(size)
+        self._currLogicAddr += _size  
+        return data.read(_size)
         
     # Assumption: A write should not go beyond the current section 
-    def write(self, data):
-        if self._currAddr + len(data) > self._currentEnd:
+    def write(self, _data):
+        _, address, size, data = self.resolve_address(self._currLogicAddr)
+        if self._currLogicAddr + len(_data) > address + size:
             raise RuntimeError("Write goes over current section")
             
-        self._rawData.write(data)
-        self._currAddr += len(data)
+        data.write(_data)
+        self._currLogicAddr += len(_data)
     
     def seek(self, where, whence=0):
         if whence == 0:
-            offset, gc_start, gc_size = self.resolve_address(where)
-            self._rawData.seek(offset + (where-gc_start))
+            _, address, _, data = self.resolve_address(where)
+            data.seek(where - address)
             
-            self._currAddr = where
-            self._currentEnd = gc_start + gc_size
+            self._currLogicAddr = where
         elif whence == 1:
-            offset, gc_start, gc_size = self.resolve_address(self._currAddr + where)
-            self._rawData.seek(offset + ((self._currAddr + where)-gc_start))
+            _, address, _, data = self.resolve_address(self._currLogicAddr + where)
+            data.seek((self._currLogicAddr + where) - address)
             
-            self._currAddr += where
-            self._currentEnd = gc_start + gc_size
+            self._currLogicAddr += where
         else:
             raise RuntimeError("Unsupported whence type '{}'".format(whence))
         
-    def tell(self):
-        return self._currAddr
+    def tell(self) -> int:
+        return self._currLogicAddr
     
-    def save(self, f):
+    def save(self, f: GC_File):
         f.seek(0)
-        f.write(self._rawData.getbuffer())
+        f.write(b"\x00" * 0x100)
 
-    def get_size(self):
-        oldpos = self._rawData.tell()
-        self._rawData.seek(0, 2)
-        size = self._rawData.tell()
-        self._rawData.seek(oldpos)
-        return size
+        for i in range(self.maxTextSections + self.maxDataSections):
+            if i < self.maxTextSections:
+                if i < len(self.textSections):
+                    offset, address, size, data = self.textSections[i]
+                else:
+                    continue
+            else:
+                if i - self.maxTextSections < len(self.dataSections):
+                    offset, address, size, data = self.dataSections[i - self.maxTextSections]
+                else:
+                    continue
 
-    def get_alignment(self, alignment):
-        size = self.get_size()
+            f.seek(self.fileOffsetLoc + (i * 4))
+            f.write_uint32(offset) #offset in file
+            f.seek(self.fileAddressLoc + (i * 4))
+            f.write_uint32(address) #game address
+            f.seek(self.fileSizeLoc + (i * 4))
+            f.write_uint32(size) #size in file
 
-        if size % alignment != 0:
-            return alignment - (size % alignment)
-        else:
-            return 0
+            if offset > f.get_size():
+                f.seek(0, 2)
+                f.write(b"\x00" * (offset - f.get_size()))
 
-    def align(self, alignment):
-        oldpos = self._rawData.tell()
-        self._rawData.seek(0, 2)
-        self._rawData.write(bytes.fromhex("00" * self.get_alignment(alignment)))
-        self._rawData.seek(oldpos)
+            f.seek(offset)
+            f.write(data.getbuffer())
+            f.align_file(32)
+
+        f.seek(self.fileBssInfoLoc)
+        f.write_uint32(self.bssAddress)
+        f.write_uint32(self.bssSize)
+
+        f.seek(self.fileEntryLoc)
+        f.write_uint32(self.entryPoint)
+        f.align_file(256)
+
+    def get_full_size(self) -> int:
+        fullSize = 0x100
+        for section in self.textSections:
+            fullSize += section[2]
+        for section in self.dataSections:
+            fullSize += section[2]
+        return fullSize
+
+    def get_section_size(self, sectionsList: list, index: int) -> int:
+        return sectionsList[index][2]
     
-    def append_text_sections(self, sections_list: list):
-        offset = len(self.textSections) << 2
-
-        if len(sections_list) + len(self.textSections) > self.maxTextSections:
-            return False
-
-        '''Write offset to each section in DOL file header'''
-        self._rawData.seek(offset)
-        for section_offset in sections_list:
-            self._rawData.write(section_offset[1].to_bytes(4, byteorder='big', signed=False)) #offset in file
+    def append_text_sections(self, sectionsList: list) -> bool:
+        """ Follows the list format: [tuple(<Bytes>Data, <Int>GameAddress or None), tuple(<Bytes>Data... 
         
-        self._rawData.seek(0x48 + offset)
+            Returns True if the operation can be performed, otherwise it returns False """
 
-        '''Write in game memory addresses for each section in DOL file header'''
-        for section_addr in sections_list:
-            self._rawData.write(section_addr[0].to_bytes(4, byteorder='big', signed=False)) #absolute address in game
+        '''Write offset/address/size to each section in DOL file header'''
+        for i, dataSet in enumerate(sectionsList):
+            if len(self.textSections) >= self.maxTextSections:
+                return False
 
-        '''Get size of GeckoLoader + gecko codes, and the codehandler'''
-        size_list = []
-        for i, section_offset in enumerate(sections_list, start=1):
-            if i > len(sections_list) - 1:
-                size_list.append(self.get_size() - section_offset[1])
+            fOffset, _, fSize, _ = self.get_final_section()
+            _, pAddress, pSize, _ = self.textSections[len(self.textSections) - 1]
+            data, address = dataSet
+            
+            if not isinstance(data, BytesIO):
+                data = BytesIO(data)
+
+            offset = fOffset + fSize
+
+            if i < len(sectionsList) - 1:
+                size = (len(data.getbuffer()) + 31) & -32
             else:
-                size_list.append(sections_list[i][1] - section_offset[1])
+                size = (len(data.getbuffer()) + 255) & -256
 
-        '''Write size of each section into DOL file header'''
-        self._rawData.seek(0x90 + offset)
-        for size in size_list:
-            self._rawData.write(size.to_bytes(4, byteorder='big', signed=False))
+            if address is None:
+                address = self.seek_nearest_unmapped(pAddress + pSize, size)
+
+            if address < 0x80000000 or address >= 0x81200000:
+                raise ValueError("Address '{:08X}' of text section {} is beyond scope (0x80000000 <-> 0x81200000)".format(address, i))
+
+            self.textSections.append((offset, address, size, data))
 
         return True
 
-    def append_data_sections(self, sections_list: list):
-        offset = len(self.dataSections) << 2
-
-        if len(sections_list) + len(self.dataSections) > self.maxDataSections:
-            return False
-
-        '''Write offset to each section in DOL file header'''
-        self._rawData.seek(offset)
-        for section_offset in sections_list:
-            write_uint32(self._rawData, section_offset[1]) #offset in file
+    def append_data_sections(self, sectionsList: list) -> bool:
+        """ Follows the list format: [tuple(<Bytes>Data, <Int>GameAddress or None), tuple(<Bytes>Data... 
         
-        self._rawData.seek(0x64 + offset)
+            Returns True if the operation can be performed, otherwise it returns False """
 
-        '''Write in game memory addresses for each section in DOL file header'''
-        for section_addr in sections_list:
-            write_uint32(self._rawData, section_addr[0]) #absolute address in game
+        '''Write offset/address/size to each section in DOL file header'''
+        for i, dataSet in enumerate(sectionsList):
+            if len(self.dataSections) >= self.maxDataSections:
+                return False
 
-        '''Get size of GeckoLoader + gecko codes, and the codehandler'''
-        size_list = []
-        for i, section_offset in enumerate(sections_list, start=1):
-            if i > len(sections_list) - 1:
-                size_list.append(self.get_size() - section_offset[1])
+            fOffset, _, fSize, _ = self.get_final_section()
+            _, pAddress, pSize, _ = self.dataSections[len(self.dataSections) - 1]
+            data, address = dataSet
+
+            if not isinstance(data, BytesIO):
+                data = BytesIO(data)
+
+            offset = fOffset + fSize
+
+            if i < len(sectionsList) - 1:
+                size = (len(data.getbuffer()) + 31) & -32
             else:
-                size_list.append(sections_list[i][1] - section_offset[1])
+                size = (len(data.getbuffer()) + 255) & -256
 
-        '''Write size of each section into DOL file header'''
-        self._rawData.seek(0xAC + offset)
-        for size in size_list:
-            write_uint32(self._rawData, size)
+            if address is None:
+                address = self.seek_nearest_unmapped(pAddress + pSize, size)
+
+            if address < 0x80000000 or address >= 0x81200000:
+                raise ValueError("Address '{:08X}' of data section {} is beyond scope (0x80000000 <-> 0x81200000)".format(address, i))
+
+            self.dataSections.append((offset, address, size, data))
 
         return True
 
-    def set_entry_point(self, address):
-        oldpos = self._rawData.tell()
-        self._rawData.seek(self.fileEntryLoc)
-        write_uint32(self._rawData, address)
-        self._rawData.seek(oldpos)
+    def insert_branch(self, to: int, _from: int, lk=0):
+        self.seek(_from)
+        f.write_uint32(self, (to - _from) & 0x3FFFFFD | 0x48000000 | lk)
 
-    def insert_branch(self, to, _from, lk=0):
-        self.write(((to - _from) & 0x3FFFFFF | 0x48000000 | lk).to_bytes(4, byteorder='big', signed=False))
+    def extract_branch_addr(self, bAddr: int) -> tuple:
+        """ Returns the branch offset of the given instruction,
+            and if the branch is conditional """
 
-        
+        self.seek(bAddr)
+
+        ppc = f.read_uint32(self)
+        conditional = False
+
+        if (ppc >> 24) & 0xFF < 0x48:
+            conditional = True
+
+        if conditional is True:
+            if (ppc & 0x8000):
+                offset = (ppc & 0xFFFD) - 0x10000
+            else:
+                offset = ppc & 0xFFFD
+        else:
+            if (ppc & 0x2000000):
+                offset = (ppc & 0x3FFFFFD) - 0x4000000
+            else:
+                offset = ppc & 0x3FFFFFD
+
+        return (bAddr + offset, conditional)
+
+    def read_string(self, addr: int = None, maxlen: int = 0, encoding: str = "utf-8") -> str:
+        """ Reads a null terminated string from the specified address """
+
+        if addr != None:
+            self.seek(addr)
+
+        length = 0
+        string = ""
+        while (char := self.read(1)) != b"\x00":
+            try:
+                string += char.decode(encoding)
+            except UnicodeDecodeError:
+                print(f"{char} at pos {length}, (address 0x{addr + length:08X}) is not a valid utf-8 character")
+                return ""
+            if length > maxlen and maxlen != 0:
+                break
+
+        return string
 
 if __name__ == "__main__":
-    # Example usage (reading some enemy info from the Pikmin 2 demo from US demo disc 17)
-    
-    def read_string(f):
-        start = f.tell()
-        length = 0
-        while f.read(1) != b"\x00":
-            length += 1
-            if length > 100:
-                break
-        
-        f.seek(start)
-        return f.read(length)
-    
-    entries = []
+    # Example usage (Reading global string "mario" from Super Mario Sunshine (NTSC-U))
 
-    with open("main.dol", "rb") as f:
+    with GC_File("Start.dol", "rb") as f:
         dol = DolFile(f)
-
-    start = 0x804ac478 # memory address to start of enemy info table.
-
-    for i in range(100):
-        dol.seek(start+0x34*i, 0)
         
-        # string offset would normally be pointing to a location in RAM and thus
-        # wouldn't be suitable as a file offset but because the seek function of DolFile 
-        # takes into account the memory address at which the data sections of the dol file 
-        # is loaded, we can use the string offset directly..
-        stringoffset = read_uint32(dol) 
-        identifier = read_ubyte(dol) 
-        dol.seek(stringoffset, 0)
-        name = read_string(dol)
-         
-        entries.append((identifier,i, name, hex(stringoffset)))
-        
-    entries.sort(key=lambda x: x[0])
-    for val in entries:
-        print(hex(val[0]), val)
+    name = dol.read_string(addr=0x804165A0)
+    print(name)
