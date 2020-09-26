@@ -139,7 +139,7 @@ class DolFile(object):
         f.seek(0)
         
     # Internal function for 
-    def resolve_address(self, gcAddr, raiseError=True) -> (None, tuple):
+    def resolve_address(self, gcAddr, raiseError=True) -> tuple:
         '''Returns the data of the section that houses the given address
            If raiseError is True, a RuntimeError is raised when the address is unmapped,
            otherwise it returns None'''
