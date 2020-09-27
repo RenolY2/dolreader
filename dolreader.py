@@ -184,6 +184,15 @@ class DolFile(object):
                 continue
             gcAddr = address + size
         return gcAddr
+        
+    @property
+    def sections(self):
+        for i in self.textSections:
+            yield i
+        for i in self.dataSections:
+            yield i 
+        
+        return
 
     def get_final_section(self) -> tuple:
         largestOffset = 0
