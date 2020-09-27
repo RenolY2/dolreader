@@ -1,5 +1,5 @@
 import struct
-from io import BytesIO, FileIO
+from io import BytesIO
 
 def read_sbyte(f):
     return struct.unpack("b", f.read(1))[0]
@@ -66,7 +66,7 @@ class UnmappedAddressError(Exception): pass
 class SectionCountFullError(Exception): pass
 class AddressOutOfRangeError(Exception): pass
 
-class GC_File(FileIO):
+class GC_File(object):
 
     def __init__(self, *args, **kwargs):
         self._args = args
@@ -74,15 +74,24 @@ class GC_File(FileIO):
         
     def __enter__(self):
         self._filestream = open(*self._args, **self._kwargs)
-        return self._filestream
+        return self
 
     def __exit__(self, *args):
         self._filestream.close()
+
+    def read(self, size: int = -1):
+        return self._filestream.read(size)
+
+    def write(self, val):
+        self._filestream.write(val)
+
+    def seek(self, where: int, whence: int = 0):
+        return self._filestream.seek(where, whence)
     
     def size(self, ofs: int = 0):
-        _pos = self.tell()
+        _pos = self._filestream.tell()
         self.seek(0, 2)
-        _size = self.tell()
+        _size = self._filestream.tell()
         self.seek(_pos, 1)
         return _size + ofs
 
@@ -345,7 +354,7 @@ class DolFile(object):
 
     def insert_branch(self, to: int, _from: int, lk=0):
         self.seek(_from)
-        f.write_uint32(self, (to - _from) & 0x3FFFFFD | 0x48000000 | lk)
+        write_uint32(self, (to - _from) & 0x3FFFFFD | 0x48000000 | lk)
 
     def extract_branch_addr(self, bAddr: int) -> tuple:
         """ Returns the branch offset of the given instruction,
@@ -353,7 +362,7 @@ class DolFile(object):
 
         self.seek(bAddr)
 
-        ppc = f.read_uint32(self)
+        ppc = read_uint32(self)
         conditional = False
 
         if (ppc >> 24) & 0xFF < 0x48:
