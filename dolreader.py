@@ -438,7 +438,8 @@ class DolFile(object):
 
     def print_info(self):
         print("")
-        print("|---DOL INFO---|".center(20, " "))
+        print("|-- DOL INFO --|".center(20, " "))
+        print("")
 
         for i, (offset, addr, size, _, _) in enumerate(self.textSections):
             header = f"|  Text section {i}  |"
