@@ -439,11 +439,11 @@ class DolFile(object):
     def print_info(self):
         print("|---DOL INFO---|".center(20, " "))
 
-        for i, (offset, addr, size, _) in enumerate(self.textSections):
+        for i, (offset, addr, size, _, _) in enumerate(self.textSections):
             header = f"|  Text section {i}  |"
             print("-"*len(header) + "\n" + header + "\n" + "-"*len(header) + f"\n File offset:\t0x{offset:X}\n Virtual addr:\t0x{addr:X}\n Size:\t\t0x{size:X}\n")
         
-        for i, (offset, addr, size, _) in enumerate(self.dataSections):
+        for i, (offset, addr, size, _, _) in enumerate(self.dataSections):
             header = f"|  Data section {i}  |"
             print("-"*len(header) + "\n" + header + "\n" + "-"*len(header) + f"\n File offset:\t0x{offset:X}\n Virtual addr:\t0x{addr:X}\n Size:\t\t0x{size:X}\n")
 
