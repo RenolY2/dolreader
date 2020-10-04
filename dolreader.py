@@ -437,6 +437,7 @@ class DolFile(object):
         return string
 
     def print_info(self):
+        print("")
         print("|---DOL INFO---|".center(20, " "))
 
         for i, (offset, addr, size, _, _) in enumerate(self.textSections):
