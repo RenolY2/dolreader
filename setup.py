@@ -10,7 +10,7 @@ setuptools.setup(
     description='Simple python library for working with Nintendo\'s DOL format',
     long_description=longDescription,
     long_description_content_type="text/markdown",
-    url='https://github.com/JoshuaMKW/pyisotools',
+    url='https://github.com/JoshuaMKW/dolreader',
     author='JoshuaMK',
     author_email='joshuamkw2002@gmail.com',
     license='GNU General Public License v3.0',
