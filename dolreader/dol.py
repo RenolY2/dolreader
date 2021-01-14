@@ -299,39 +299,6 @@ class DolFile(object):
         else:
             self.dataSections.append(section)
 
-    def append_data_sections(self, sectionsList: list):
-        """ Follows the list format: [tuple(<Bytes>Data, <Int>GameAddress or None), tuple(<Bytes>Data... """
-
-        for i, dataSet in enumerate(sectionsList):
-            if len(self.dataSections) >= DolFile.maxDataSections:
-                raise SectionCountFullError(f"Exceeded max data section limit of {DolFile.maxDataSections}")
-
-            finalSection = self.lastSection
-            lastSection = self.dataSections[len(self.dataSections) - 1]
-            data, address = dataSet
-
-            if not hasattr(data, "getbuffer"):
-                if hasattr(data, "read"):
-                    data.seek(0)
-                    data = BytesIO(data.read())
-                else:
-                    data = BytesIO(data)
-
-            offset = finalSection.offset + finalSection.size
-
-            if i < len(sectionsList) - 1:
-                size = (len(data.getbuffer()) + 31) & -32
-            else:
-                size = (len(data.getbuffer()) + 255) & -256
-
-            if address is None:
-                address = self.seek_nearest_unmapped(lastSection.address + lastSection.size, size)
-
-            if address < 0x80000000 or address >= 0x81200000:
-                raise AddressOutOfRangeError(f"Address '{address:08X}' of data section {i} is beyond scope (0x80000000 <-> 0x81200000)")
-
-            self.dataSections.append({"offset": offset, "address": address, "size": size, "data": data, "type": Section.SectionType.DATA})
-
     def insert_branch(self, to: int, _from: int, lk: bool = False):
         """ Insert a branch instruction at _from\n
             to:    address to branch to\n
