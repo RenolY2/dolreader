@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import struct
 from io import BytesIO, IOBase
+from typing import Tuple, Union
 
 from dolreader.exceptions import (AddressOutOfRangeError,
                                   IncompleteSectionError,
@@ -95,13 +96,13 @@ def align_byte_size(obj, alignment: int, fillchar="00"):
 
 class DolFile(object):
 
-    maxTextSections = 7
-    maxDataSections = 11
-    offsetInfoLoc = 0
-    addressInfoLoc = 0x48
-    sizeInfoLoc = 0x90 
-    bssInfoLoc = 0xD8
-    entryInfoLoc = 0xE0
+    MaxTextSections = 7
+    MaxDataSections = 11
+    OffsetInfoLoc = 0
+    AddressInfoLoc = 0x48
+    SizeInfoLoc = 0x90 
+    BssInfoLoc = 0xD8
+    EntryInfoLoc = 0xE0
 
     def __init__(self, stream = None, startpos: int = 0):
         self.textSections = []
@@ -114,27 +115,27 @@ class DolFile(object):
         if stream is None: return
         
         # Read text and data section addresses and sizes 
-        for i in range(DolFile.maxTextSections + DolFile.maxDataSections):
-            stream.seek(DolFile.offsetInfoLoc + (i << 2) + startpos)
+        for i in range(DolFile.MaxTextSections + DolFile.MaxDataSections):
+            stream.seek(DolFile.OffsetInfoLoc + (i << 2) + startpos)
             offset = read_uint32(stream)
-            stream.seek(DolFile.addressInfoLoc + (i << 2) + startpos)
+            stream.seek(DolFile.AddressInfoLoc + (i << 2) + startpos)
             address = read_uint32(stream)
-            stream.seek(DolFile.sizeInfoLoc + (i << 2) + startpos)
+            stream.seek(DolFile.SizeInfoLoc + (i << 2) + startpos)
             size = read_uint32(stream)
             
             if offset >= 0x100:
                 stream.seek(offset + startpos)
                 data = BytesIO(stream.read(size))
-                if i < DolFile.maxTextSections:
+                if i < DolFile.MaxTextSections:
                     self.textSections.append(TextSection(address=address, data=data, offset=offset))
                 else:
                     self.dataSections.append(DataSection(address=address, data=data, offset=offset))
         
-        stream.seek(DolFile.bssInfoLoc + startpos)
+        stream.seek(DolFile.BssInfoLoc + startpos)
         self.bssAddress = read_uint32(stream)
         self.bssSize = read_uint32(stream)
 
-        stream.seek(DolFile.entryInfoLoc + startpos)
+        stream.seek(DolFile.EntryInfoLoc + startpos)
         self.entryPoint = read_uint32(stream)
         
         self._currLogicAddr = self.firstSection.address
@@ -147,7 +148,7 @@ class DolFile(object):
     def __str__(self) -> str:
         return f"Nintendo DOL executable {self.__repr__()}"
         
-    def resolve_address(self, gcAddr: int) -> [DataSection, TextSection]:
+    def resolve_address(self, gcAddr: int) -> Union[DataSection, TextSection]:
         """ Returns the data of the section that houses the given address\n
             UnmappedAddressError is raised when the address is unmapped """
 
@@ -172,7 +173,7 @@ class DolFile(object):
         return gcAddr
 
     @property
-    def sections(self) -> [DataSection, TextSection]:
+    def sections(self) -> Union[DataSection, TextSection]:
         """ Generator that yields each section's data """
 
         for i in self.textSections:
@@ -181,11 +182,11 @@ class DolFile(object):
             yield i
 
     @property
-    def lastSection(self) -> [DataSection, TextSection]:
+    def lastSection(self) -> Union[DataSection, TextSection]:
         return sorted(self.sections, key=lambda x: x.offset, reverse=True)[0]
 
     @property
-    def firstSection(self) -> [DataSection, TextSection]:
+    def firstSection(self) -> Union[DataSection, TextSection]:
         return sorted(self.sections, key=lambda x: x.offset)[0]
 
     @property
@@ -237,27 +238,27 @@ class DolFile(object):
             if section.id == Section.SectionType.TEXT:
                 entry = i
             elif section.id == Section.SectionType.DATA:
-                entry = i + (DolFile.maxTextSections - len(self.textSections))
+                entry = i + (DolFile.MaxTextSections - len(self.textSections))
             else:
-                raise IncompleteSectionError(f"Section {i} is incomplete, convert to DataSection or TextSection for saving")
+                raise IncompleteSectionError(f"Section {i} is abstract, convert to DataSection or TextSection for saving")
 
-            stream.seek(DolFile.offsetInfoLoc + (entry << 2) + startpos)
+            stream.seek(DolFile.OffsetInfoLoc + (entry << 2) + startpos)
             write_uint32(stream, section.offset) #offset in file
-            stream.seek(DolFile.addressInfoLoc + (entry << 2) + startpos)
+            stream.seek(DolFile.AddressInfoLoc + (entry << 2) + startpos)
             write_uint32(stream, section.address) #game address
-            stream.seek(DolFile.sizeInfoLoc + (entry << 2) + startpos)
+            stream.seek(DolFile.SizeInfoLoc + (entry << 2) + startpos)
             write_uint32(stream, section.size) #size in file
 
             stream.seek(section.offset + startpos)
             stream.write(section.data.getbuffer())
 
-        stream.seek(DolFile.bssInfoLoc + startpos)
+        stream.seek(DolFile.BssInfoLoc + startpos)
         write_uint32(stream, self.bssAddress)
         write_uint32(stream, self.bssSize)
 
-        stream.seek(DolFile.entryInfoLoc + startpos)
+        stream.seek(DolFile.EntryInfoLoc + startpos)
         write_uint32(stream, self.entryPoint)
-        align_byte_size(stream, 256)
+        stream.seek(startpos)
 
     def get_section_size(self, index: int, _type: Section.SectionType) -> int:
         """ Return the current size of the specified section\n
@@ -268,15 +269,15 @@ class DolFile(object):
         elif _type == Section.SectionType.DATA:
             return self.dataSections[index].size
     
-    def append_section(self, section: [TextSection, DataSection]):
+    def append_section(self, section: Union[TextSection, DataSection]):
         if section.id == Section.SectionType.TEXT:
-            if len(self.textSections) >= DolFile.maxTextSections:
-                raise SectionCountFullError(f"Exceeded max text section limit of {DolFile.maxTextSections}")
+            if len(self.textSections) >= DolFile.MaxTextSections:
+                raise SectionCountFullError(f"Exceeded max text section limit of {DolFile.MaxTextSections}")
 
             prevSection = self.textSections[-1]
         elif section.id == Section.SectionType.DATA:
-            if len(self.dataSections) >= DolFile.maxDataSections:
-                raise SectionCountFullError(f"Exceeded max data section limit of {DolFile.maxTextSections}")
+            if len(self.dataSections) >= DolFile.MaxDataSections:
+                raise SectionCountFullError(f"Exceeded max data section limit of {DolFile.MaxTextSections}")
 
             prevSection = self.dataSections[-1]
         else:
@@ -300,17 +301,17 @@ class DolFile(object):
             self.dataSections.append(section)
 
     def insert_branch(self, to: int, _from: int, lk: bool = False):
-        """ Insert a branch instruction at _from\n
+        """ Insert a branch instruction at `_from`\n
             to:    address to branch to\n
             _from: address to branch from\n
-            lk:    0 | 1, is branch linking? """
+            lk:    is branch linking? """
 
         _from &= 0xFFFFFFFC
         to &= 0xFFFFFFFC
         self.seek(_from)
-        write_uint32(self, (to - _from) & 0x3FFFFFD | 0x48000000 | 1 if lk else 0)
+        write_uint32(self, (to - _from) & 0x3FFFFFD | 0x48000000 | (1 if lk else 0))
 
-    def extract_branch_addr(self, bAddr: int) -> tuple:
+    def extract_branch_addr(self, bAddr: int) -> Tuple[int, bool]:
         """ Returns the destination of the given branch,
             and if the branch is conditional """
 

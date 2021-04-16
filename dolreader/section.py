@@ -1,4 +1,5 @@
 from io import BytesIO
+from typing import Union
 
 class Section(object):
 
@@ -7,7 +8,7 @@ class Section(object):
         DATA = 1
         UNDEFINED = -1
 
-    def __init__(self, address: int = None, data: [bytes, bytearray, BytesIO] = BytesIO()):
+    def __init__(self, address: int = None, data: Union[bytes, bytearray, BytesIO] = BytesIO()):
         self.address = address
 
         if isinstance(data, (bytes, bytearray)):
@@ -28,7 +29,7 @@ class Section(object):
 
 class TextSection(Section):
 
-    def __init__(self, address: int = None, data: [bytes, bytearray, BytesIO] = BytesIO(), offset: int = None):
+    def __init__(self, address: int = None, data: Union[bytes, bytearray, BytesIO] = BytesIO(), offset: int = None):
         super().__init__(address, data)
         self.offset = offset
 
@@ -39,7 +40,7 @@ class TextSection(Section):
 
 class DataSection(Section):
 
-    def __init__(self, address: int = None, data: [bytes, bytearray, BytesIO] = BytesIO(), offset: int = None):
+    def __init__(self, address: int = None, data: Union[bytes, bytearray, BytesIO] = BytesIO(), offset: int = None):
         super().__init__(address, data)
         self.offset = offset
 
