@@ -260,6 +260,13 @@ class DolFile(object):
         write_uint32(stream, self.entryPoint)
         stream.seek(startpos)
 
+    def is_mapped(self, address: int) -> bool:
+        try:
+            self.resolve_address(address)
+            return True
+        except UnmappedAddressError:
+            return False
+
     def get_section_size(self, index: int, _type: Section.SectionType) -> int:
         """ Return the current size of the specified section\n
             section: DolFile.SectionType """
