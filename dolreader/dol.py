@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import struct
 from io import BytesIO, IOBase
-from typing import Tuple, Union
+from typing import BinaryIO, Iterable, List, Tuple, Union
 
 from dolreader.exceptions import (AddressOutOfRangeError,
                                   IncompleteSectionError,
@@ -64,38 +64,8 @@ def read_bool(f, vSize=1):
 def write_bool(f, val, vSize=1):
     f.write(b'\x00'*(vSize-1) + b'\x01') if val is True else f.write(b'\x00' * vSize)
 
-def get_alignment(number, align: int):
-    if number % align != 0:
-        return align - (number % align)
-    else:
-        return 0
-
-def stream_size(obj, ofs: int = 0) -> int:
-    if hasattr(obj, "getbuffer"):
-        return len(obj.getbuffer()) + ofs
-    elif hasattr(obj, "tell") and hasattr(obj, "seek"):
-        _pos = obj.tell()
-        obj.seek(0, 2)
-        _size = obj.tell()
-        obj.seek(_pos, 1)
-        return _size + ofs
-    else:
-        raise NotImplementedError(f"Getting the stream size of class {type(obj)} is unsupported")
-
-def align_byte_size(obj, alignment: int, fillchar="00"):
-    if isinstance(obj, bytes):
-        obj += bytes.fromhex(fillchar * get_alignment(len(obj), alignment))
-    elif isinstance(obj, bytearray):
-        obj.append(bytearray.fromhex(fillchar * get_alignment(len(obj), alignment)))
-    elif issubclass(type(obj), IOBase):
-        _size = stream_size(obj)
-        obj.write(bytes.fromhex(fillchar * get_alignment(_size, alignment)))
-    else:
-        raise NotImplementedError(f"Aligning the size of class {type(obj)} is unsupported")
-    
 
 class DolFile(object):
-
     MaxTextSections = 7
     MaxDataSections = 11
     OffsetInfoLoc = 0
@@ -104,12 +74,12 @@ class DolFile(object):
     BssInfoLoc = 0xD8
     EntryInfoLoc = 0xE0
 
-    def __init__(self, stream = None, startpos: int = 0):
-        self.textSections = []
-        self.dataSections = []
+    def __init__(self, stream: BinaryIO = None, startpos: int = 0):
+        self.textSections: List[TextSection] = []
+        self.dataSections: List[DataSection] = []
 
-        self.bssAddress = None
-        self.bssSize = None
+        self.bssAddress = 0
+        self.bssSize = 0
         self.entryPoint = 0x80003000
 
         if stream is None: return
@@ -143,10 +113,10 @@ class DolFile(object):
         stream.seek(0)
 
     def __repr__(self) -> str:
-        return f"repr={vars(self)}"
+        return f"{self.__class__.__name__}({self.__dict__})"
 
     def __str__(self) -> str:
-        return f"Nintendo DOL executable {self.__repr__()}"
+        return f"Nintendo DOL executable"
         
     def resolve_address(self, gcAddr: int) -> Union[DataSection, TextSection]:
         """ Returns the data of the section that houses the given address\n
@@ -173,7 +143,7 @@ class DolFile(object):
         return gcAddr
 
     @property
-    def sections(self) -> Union[DataSection, TextSection]:
+    def sections(self) -> Iterable[Union[DataSection, TextSection]]:
         """ Generator that yields each section's data """
 
         for i in self.textSections:
@@ -183,7 +153,7 @@ class DolFile(object):
 
     @property
     def lastSection(self) -> Union[DataSection, TextSection]:
-        return sorted(self.sections, key=lambda x: x.offset, reverse=True)[0]
+        return sorted(self.sections, key=lambda x: x.offset)[-1]
 
     @property
     def firstSection(self) -> Union[DataSection, TextSection]:
@@ -230,7 +200,7 @@ class DolFile(object):
     def tell(self) -> int:
         return self._currLogicAddr
     
-    def save(self, stream, startpos: int = 0):
+    def save(self, stream: BinaryIO, startpos: int = 0):
         stream.seek(startpos)
         stream.write(b"\x00" * self.size)
 
@@ -340,9 +310,81 @@ class DolFile(object):
 
         return (bAddr + offset, conditional)
 
-    def read_string(self, addr: int, maxlen: int = 0, encoding: str = "ascii") -> str:
+    def read_sbyte(self, address: int):
+        self.seek(address)
+        return struct.unpack("b", self.read(1))[0]
+
+    def write_sbyte(self, address: int, val: int):
+        self.seek(address)
+        self.write(struct.pack("b", val))
+
+    def read_sint16(self, address: int):
+        self.seek(address)
+        return struct.unpack(">h", self.read(2))[0]
+
+    def write_sint16(self, address: int, val: int):
+        self.seek(address)
+        self.write(struct.pack(">h", val))
+
+    def read_sint32(self, address: int):
+        self.seek(address)
+        return struct.unpack(">i", self.read(4))[0]
+
+    def write_sint32(self, address: int, val: int):
+        self.seek(address)
+        self.write(struct.pack(">i", val))
+
+    def read_ubyte(self, address: int):
+        self.seek(address)
+        return struct.unpack("B", self.read(1))[0]
+
+    def write_ubyte(self, address: int, val: int):
+        self.seek(address)
+        self.write(struct.pack("B", val))
+
+    def read_uint16(self, address: int):
+        self.seek(address)
+        return struct.unpack(">H", self.read(2))[0]
+
+    def write_uint16(self, address: int, val: int):
+        self.seek(address)
+        self.write(struct.pack(">H", val))
+
+    def read_uint32(self, address: int):
+        self.seek(address)
+        return struct.unpack(">I", self.read(4))[0]
+
+    def write_uint32(self, address: int, val: int):
+        self.seek(address)
+        self.write(struct.pack(">I", val))
+
+    def read_float(self, address: int):
+        self.seek(address)
+        return struct.unpack(">f", self.read(4))[0]
+
+    def write_float(self, address: int, val: float):
+        self.seek(address)
+        self.write(struct.pack(">f", val))
+
+    def read_double(self, address: int):
+        self.seek(address)
+        return struct.unpack(">d", self.read(4))[0]
+
+    def write_double(self, address: int, val: float):
+        self.seek(address)
+        self.write(struct.pack(">d", val))
+
+    def read_bool(self, address: int, vSize=1):
+        self.seek(address)
+        return struct.unpack("B", self.read(vSize))[0] > 0
+
+    def write_bool(self, address: int, val, vSize=1):
+        self.seek(address)
+        self.write(b'\x00'*(vSize-1) + b'\x01') if val is True else self.write(b'\x00' * vSize)
+
+    def read_string(self, address: int, maxlen: int = 0, encoding: str = "ascii") -> str:
         """ Reads a null terminated string from the specified address """
-        self.seek(addr)
+        self.seek(address)
 
         length = 0
         string = ""
@@ -351,7 +393,7 @@ class DolFile(object):
                 string += char.decode(encoding)
                 length += 1
             except UnicodeDecodeError:
-                print(f"{char} at pos {length}, (address 0x{addr + length:08X}) is not a valid {encoding} character")
+                print(f"{char} at pos {length}, (address 0x{address + length:08X}) is not a valid {encoding} character")
                 return string[:-1]
             if length > (maxlen-1) and maxlen != 0:
                 return string
