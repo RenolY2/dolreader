@@ -1,3 +1,3 @@
-__version__ = "1.0.9a"
+__version__ = "1.1.0"
 __author__ = 'JoshuaMK'
 __credits__ = 'RenolY2: https://github.com/RenolY2'

@@ -382,7 +382,7 @@ class DolFile(object):
         self.seek(address)
         self.write(b'\x00'*(vSize-1) + b'\x01') if val is True else self.write(b'\x00' * vSize)
 
-    def read_string(self, address: int, maxlen: int = 0, encoding: str = "ascii") -> str:
+    def read_c_string(self, address: int, maxlen: int = 0, encoding: str = "ascii") -> str:
         """ Reads a null terminated string from the specified address """
         self.seek(address)
 
@@ -399,6 +399,16 @@ class DolFile(object):
                 return string
 
         return string
+
+    def read_string(self, address: int, strlen: int, encoding: str = "ascii") -> str:
+        """ Reads a string of `strlen` bytes from the specified address """
+        self.seek(address)
+        return self.read(strlen).decode(encoding)
+
+    def write_string(self, address: int, string: str, encoding: str = "ascii"):
+        """ Writes a string to the specified address """
+        self.seek(address)
+        self.write(string.encode(encoding) + b"\x00")
 
     def print_info(self):
         print("")
@@ -445,5 +455,5 @@ if __name__ == "__main__":
     with open("Start.dol", "rb") as f:
         dol = DolFile(f)
         
-    name = dol.read_string(0x804165A0)
+    name = dol.read_c_string(0x804165A0)
     print(name)
