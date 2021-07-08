@@ -163,7 +163,7 @@ class DolFile(object):
     def size(self) -> int:
         try:
             section = self.lastSection
-            return (section.offset + section.size + 255) & -256
+            return section.offset + section.size
         except IndexError:
             return 0x100
     
